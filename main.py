@@ -1,31 +1,37 @@
 from pyrogram import Client, filters
-import os
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# আপনার বোট টোকেন
+# আপনার বোট টোকেন ও এপিআই
 BOT_TOKEN = "8077162426:AAHQ2z1KmwbY_zq3AwrZ9_SyJThGhqYeLFo"
+API_ID = 12345 # আপনার আইডি
+API_HASH = "your_hash"
 
-# আপনার API ID এবং Hash (Railway-এর Variables থেকে আসবে)
-API_ID = int(os.environ.get("API_ID"))
-API_HASH = os.environ.get("API_HASH")
-
-# সোর্স এবং ডেস্টিনেশন আইডি (Railway-এর Variables থেকে আসবে)
-SOURCE_CHAT_ID = int(os.environ.get("SOURCE_CHAT_ID"))
-DEST_CHAT_ID = int(os.environ.get("DEST_CHAT_ID"))
-
-# বোট ক্লায়েন্ট তৈরি
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
+# মেইন মেনু তৈরি
 @app.on_message(filters.command("start"))
 def start(client, message):
-    message.reply("✅ বোট সচল হয়েছে এবং মেসেজ ফরওয়ার্ডের জন্য প্রস্তুত!")
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 WhatsApp", callback_data="wa"),
+         InlineKeyboardButton("✈️ Telegram", callback_data="tg")],
+        [InlineKeyboardButton("📸 Instagram", callback_data="ig"),
+         InlineKeyboardButton("🔵 Facebook", callback_data="fb")],
+        [InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin")]
+    ])
+    message.reply("✅ স্বাগতম! আপনার কাঙ্ক্ষিত অপশনটি সিলেক্ট করুন:", reply_markup=keyboard)
 
-@app.on_message(filters.chat(SOURCE_CHAT_ID))
-def forward_msg(client, message):
-    try:
-        # সোর্স গ্রুপ থেকে মেসেজ ফরওয়ার্ড করা
-        client.forward_messages(DEST_CHAT_ID, message.chat.id, message.id)
-    except Exception as e:
-        print(f"Error: {e}")
+# বাটন ক্লিক হ্যান্ডেল করা
+@app.on_callback_query()
+def callback_handler(client, callback_query):
+    data = callback_query.data
+    
+    if data == "wa":
+        callback_query.answer("WhatsApp সেকশন সিলেক্ট হয়েছে!")
+        callback_query.message.edit_text("WhatsApp-এর নম্বরটি পাঠান:")
+    elif data == "tg":
+        callback_query.answer("Telegram সেকশন সিলেক্ট হয়েছে!")
+        callback_query.message.edit_text("Telegram-এর নম্বরটি পাঠান:")
+    elif data == "admin":
+        callback_query.message.edit_text("🔒 অ্যাডমিন প্যানেলে স্বাগতম!")
 
-print("বোট চালু হচ্ছে...")
 app.run()
