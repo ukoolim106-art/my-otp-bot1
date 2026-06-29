@@ -1,29 +1,60 @@
-from telegram import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, ParseMode
+import sqlite3, logging, asyncio
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ParseMode
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-# ১. মেইন মেনু (স্ক্রিনশটের মতো বাটনের ডিজাইন)
-def get_main_menu():
-    # বাটনগুলোকে সুন্দরভাবে সাজাতে ইমোজি ব্যবহার করুন
-    keyboard = [
+# --- কনফিগারেশন ---
+TOKEN = "8077162426:AAE3m7u65xSZcT-8Jl9zqjSDye43-ftwUOg"
+ADMIN_ID = 8531139387
+DB_FILE = "bot_data.db"
+
+logging.basicConfig(level=logging.INFO)
+
+# --- ডাটাবেস ক্লাস ---
+class DB:
+    def __init__(self):
+        self.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+        self.c = self.conn.cursor()
+        self.c.execute('CREATE TABLE IF NOT EXISTS nums (service TEXT, number TEXT)')
+        self.conn.commit()
+    def get_num(self, service):
+        self.c.execute('SELECT number FROM nums WHERE service = ? LIMIT 1', (service,))
+        return self.c.fetchone()
+    def del_num(self, number):
+        self.c.execute('DELETE FROM nums WHERE number = ?', (number,))
+        self.conn.commit()
+
+db = DB()
+
+# --- মেনু ডিজাইন ---
+def get_main_keyboard():
+    # স্ক্রিনশট অনুযায়ী মেইন বাটন ডিজাইন
+    return ReplyKeyboardMarkup([
         [KeyboardButton("🌐 FACEBOOK"), KeyboardButton("🌐 WHATSAPP")],
         [KeyboardButton("🌐 TELEGRAM"), KeyboardButton("🌐 OTHER")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    ], resize_keyboard=True)
 
-# ২. অ্যাডমিন প্যানেল ডিজাইন (হাই-কোয়ালিটি কালারফুল ইমোজি ব্যবহার)
-def get_admin_dashboard():
-    keyboard = [
-        [InlineKeyboardButton("📊 𝐒𝐓𝐀𝐓𝐔𝐒", callback_data="ad_stats"), InlineKeyboardButton("🧹 𝐂𝐋𝐄𝐀𝐍𝐄𝐑", callback_data="ad_clean")],
-        [InlineKeyboardButton("📢 𝐁𝐑𝐎𝐀𝐃𝐂𝐀𝐒𝐓", callback_data="ad_bc"), InlineKeyboardButton("👥 𝐔𝐒𝐄𝐑𝐒", callback_data="ad_users")],
-        [InlineKeyboardButton("📁 𝐔𝐏𝐋𝐎𝐀𝐃", callback_data="ad_files"), InlineKeyboardButton("🔙 𝐁𝐀𝐂𝐊", callback_data="back_main")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-# ৩. মেসেজ স্টাইল (প্রিমিয়াম লুকের জন্য)
-async def welcome_message(update, context):
-    # বোল্ড ও মোনোকোড ব্যবহার করে ডিজাইনে আকর্ষণ আনা হয়েছে
-    text = (
-        "👋 *Welcome to Rocket OTP Bot!*\n\n"
-        "🚀 `28,958 monthly users rely on us.`\n\n"
-        "✨ *Select your service from below:*"
+# --- হ্যান্ডলার ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 *Welcome to Rocket OTP Bot!*\n\n🚀 `28,958 monthly users rely on us.`", 
+        parse_mode=ParseMode.MARKDOWN, 
+        reply_markup=get_main_keyboard()
     )
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu())
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if "WHATSAPP" in text:
+        num_row = db.get_num('wa')
+        if num_row:
+            num = num_row[0]
+            db.del_num(num)
+            await update.message.reply_text(f"✅ *Numbers Assigned!*\n\nCountry: Tanzania🇹🇿\nNumber: `{num}`", parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text("❌ No numbers available!")
+
+if __name__ == '__main__':
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print("🚀 Bot is running perfectly...")
+    app.run_polling()
