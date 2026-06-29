@@ -6,63 +6,67 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 TOKEN = "8077162426:AAE3m7u65xSZcT-8Jl9zqjSDye43-ftwUOg"
 ADMIN_ID = 8531139387
 
-# ডাটা ফাইল চেক করা
+# ডিফল্ট মেনু ডাটা
 def load_data():
-    if not os.path.exists("data.json"):
-        return {"wa": "+8801700000000", "tg": "+8801800000000", "ig": "@insta", "fb": "fb.com/pro", "others": "info@example.com"}
+    default = {
+        "wa": "📱 WhatsApp", 
+        "tg": "✈️ Telegram", 
+        "ig": "📸 Instagram", 
+        "fb": "🔵 Facebook", 
+        "others": "🌐 Others"
+    }
+    if not os.path.exists("data.json"): return default
     with open("data.json", "r") as f: return json.load(f)
 
-# মেনু ডিজাইন (Others সহ)
+# আকর্ষণীয় মেনু ডিজাইন
 def get_menu_keyboard():
     data = load_data()
-    keyboard = []
-    # বাটনগুলো ২ কলামে সাজানো
-    keys = list(data.keys())
-    for i in range(0, len(keys), 2):
-        row = [InlineKeyboardButton(keys[i].upper(), callback_data=keys[i])]
-        if i + 1 < len(keys):
-            row.append(InlineKeyboardButton(keys[i+1].upper(), callback_data=keys[i+1]))
-        keyboard.append(row)
-    
-    keyboard.append([InlineKeyboardButton("⚙️ অ্যাডমিন প্যানেল", callback_data="admin")])
+    keyboard = [
+        [InlineKeyboardButton("📱 WhatsApp", callback_data="wa"), InlineKeyboardButton("✈️ Telegram", callback_data="tg")],
+        [InlineKeyboardButton("📸 Instagram", callback_data="ig"), InlineKeyboardButton("🔵 Facebook", callback_data="fb")],
+        [InlineKeyboardButton("🌐 Others", callback_data="others")],
+        [InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin")]
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 স্বাগতম! সেবা নির্বাচন করুন:", reply_markup=get_menu_keyboard())
+    welcome_text = (
+        "✨ **স্বাগতম আমাদের সার্ভিস সেন্টারে!** ✨\n\n"
+        "আপনার পছন্দের সার্ভিসটি নিচে থেকে সিলেক্ট করুন।\n"
+        "━━━━━━━━━━━━━━━━━━━━"
+    )
+    await update.message.reply_text(welcome_text, reply_markup=get_menu_keyboard(), parse_mode="Markdown")
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = load_data()
-
-    if query.data in data:
-        await query.edit_message_text(f"✅ {query.data.upper()}: {data[query.data]}\n\n[🔙 মেনুতে ফিরুন]", 
-                                      reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙", callback_data="back")]]))
     
+    # বাটন অনুযায়ী রেসপন্স
+    if query.data in ["wa", "tg", "ig", "fb", "others"]:
+        # এখানে আপনার নম্বরগুলো আপডেট করে নেবেন
+        info = {
+            "wa": "📱 **WhatsApp Number:**\n+8801700000000",
+            "tg": "✈️ **Telegram Link:**\n@YourTelegramID",
+            "ig": "📸 **Instagram Link:**\ninstagram.com/yourprofile",
+            "fb": "🔵 **Facebook Profile:**\nfb.com/yourprofile",
+            "others": "🌐 **Others Info:**\nবিস্তারিত তথ্য এখানে দিন।"
+        }
+        text = f"✨ {info[query.data]}\n\n━━━━━━━━━━━━━━━━━━━━"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="back")]]), parse_mode="Markdown")
+
     elif query.data == "admin":
         if update.effective_user.id == ADMIN_ID:
-            await query.edit_message_text("⚙️ অ্যাডমিন প্যানেল:\nনতুন সার্ভিস যোগ করতে লিখুন:\n/add [নাম] [লিংক/নম্বর]", 
-                                          reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 ব্যাক", callback_data="back")]]))
+            await query.edit_message_text("🔒 **অ্যাডমিন প্যানেল**\n\nআপনি বর্তমানে এডমিন মোডে আছেন। নতুন সার্ভিস আপডেট করতে `/add [key] [value]` কমান্ড ব্যবহার করুন।", 
+                                          reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="back")]]), parse_mode="Markdown")
         else:
-            await query.answer("আপনি অ্যাডমিন নন!", show_alert=True)
+            await query.answer("❌ আপনি এডমিন নন!", show_alert=True)
 
     elif query.data == "back":
-        await query.edit_message_text("👋 স্বাগতম! সেবা নির্বাচন করুন:", reply_markup=get_menu_keyboard())
-
-async def add_service(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    args = context.args
-    if len(args) < 2:
-        await update.message.reply_text("ভুল ফরম্যাট! লিখুন: /add [নাম] [নম্বর]")
-        return
-    data = load_data()
-    data[args[0]] = args[1]
-    with open("data.json", "w") as f: json.dump(data, f)
-    await update.message.reply_text(f"✅ {args[0]} যোগ করা হয়েছে!")
+        await query.edit_message_text("✨ **স্বাগতম আমাদের সার্ভিস সেন্টারে!** ✨\n\nআপনার পছন্দের সার্ভিসটি নিচে থেকে সিলেক্ট করুন।\n━━━━━━━━━━━━━━━━━━━━", 
+                                      reply_markup=get_menu_keyboard(), parse_mode="Markdown")
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add_service))
     app.add_handler(CallbackQueryHandler(handle_buttons))
     app.run_polling()
