@@ -5,64 +5,87 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 TOKEN = "8077162426:AAE3m7u65xSZcT-8Jl9zqjSDye43-ftwUOg"
 ADMIN_ID = 8531139387
 
-# ডাটাবেস ইনিশিয়ালাইজেশন
+# ডাটাবেস সেটআপ
 def init_db():
     conn = sqlite3.connect('numbers.db')
     c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS nums (number TEXT UNIQUE)')
+    c.execute('CREATE TABLE IF NOT EXISTS nums (service TEXT, number TEXT)')
     conn.commit()
     conn.close()
 
 init_db()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("📱 নম্বর নিন (২টা)", callback_data="get_num")]]
-    await update.message.reply_text("👋 স্বাগতম! নিচে ক্লিক করে নম্বর সংগ্রহ করুন:", reply_markup=InlineKeyboardMarkup(keyboard))
+# মেইন মেনু
+def get_main_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 WhatsApp", callback_data="wa"), InlineKeyboardButton("✈️ Telegram", callback_data="tg")],
+        [InlineKeyboardButton("📸 Instagram", callback_data="ig"), InlineKeyboardButton("🔵 Facebook", callback_data="fb")],
+        [InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin")]
+    ])
 
-# ফাইল থেকে নম্বর প্রসেস করা
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✨ স্বাগতম! আপনার কাঙ্ক্ষিত সেবাটি বেছে নিন:", reply_markup=get_main_menu())
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == "admin":
+        if query.from_user.id == ADMIN_ID:
+            await query.edit_message_text("⚙️ **অ্যাডমিন প্যানেল**\n\nফাইল আপলোড করুন (txt) নম্বর যোগ করতে।\nবাটনে ক্লিক করলে ২টা নম্বর পাবেন।", 
+                                          reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 মেনুতে ফিরুন", callback_data="back")]]))
+        else:
+            await query.answer("❌ আপনি অ্যাডমিন নন!", show_alert=True)
+    
+    elif data in ["wa", "tg", "ig", "fb"]:
+        conn = sqlite3.connect('numbers.db')
+        c = conn.cursor()
+        c.execute('SELECT number FROM nums WHERE service = ? LIMIT 2', (data,))
+        rows = c.fetchall()
+        
+        if len(rows) < 2:
+            await query.edit_message_text("❌ নম্বর শেষ! অ্যাডমিনকে জানান।", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙", callback_data="back")]]))
+        else:
+            num1, num2 = rows[0][0], rows[1][0]
+            c.execute('DELETE FROM nums WHERE number IN (?, ?)', (num1, num2))
+            conn.commit()
+            await query.edit_message_text(f"✅ {data.upper()} নম্বর:\n\n1. {num1}\n2. {num2}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙", callback_data="back")]]))
+        conn.close()
+
+    elif data == "back":
+        await query.edit_message_text("✨ স্বাগতম! আপনার কাঙ্ক্ষিত সেবাটি বেছে নিন:", reply_markup=get_main_menu())
+
+# ফাইল আপলোড সিস্টেম
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     
-    file = await update.message.document.get_file()
-    await file.download_to_drive("uploaded_numbers.txt")
-    
-    conn = sqlite3.connect('numbers.db')
-    c = conn.cursor()
-    count = 0
-    with open("uploaded_numbers.txt", "r") as f:
-        for line in f:
-            num = line.strip()
-            if num:
-                try:
-                    c.execute('INSERT INTO nums (number) VALUES (?)', (num,))
-                    count += 1
-                except: continue
-    conn.commit()
-    conn.close()
-    await update.message.reply_text(f"✅ সফলভাবে {count}টি নম্বর ডাটাবেসে যোগ হয়েছে!")
+    # ইউজারকে জিজ্ঞেস করা কোন সার্ভিসের ফাইল
+    await update.message.reply_text("এই ফাইলটি কোন সার্ভিসের জন্য? (wa, tg, ig, অথবা fb লিখে রিপ্লাই দিন)")
+    context.user_data['doc'] = update.message.document
 
-async def get_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    conn = sqlite3.connect('numbers.db')
-    c = conn.cursor()
-    c.execute('SELECT number FROM nums LIMIT 2')
-    rows = c.fetchall()
-    
-    if len(rows) < 2:
-        await query.edit_message_text("❌ নম্বর শেষ! অ্যাডমিনকে নতুন ফাইল পাঠান।")
-    else:
-        num1, num2 = rows[0][0], rows[1][0]
-        c.execute('DELETE FROM nums WHERE number IN (?, ?)', (num1, num2))
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if 'doc' in context.user_data:
+        service = update.message.text.lower()
+        if service not in ['wa', 'tg', 'ig', 'fb']: return
+        
+        file = await context.user_data['doc'].get_file()
+        await file.download_to_drive("temp.txt")
+        
+        conn = sqlite3.connect('numbers.db')
+        c = conn.cursor()
+        with open("temp.txt", "r") as f:
+            for line in f:
+                if line.strip(): c.execute('INSERT INTO nums (service, number) VALUES (?, ?)', (service, line.strip()))
         conn.commit()
-        await query.edit_message_text(f"✅ আপনার নম্বর দুটি:\n\n1️⃣ {num1}\n2️⃣ {num2}\n\n[🔄 নতুন ২টা নিন]", 
-                                      reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 আবার নিন", callback_data="get_num")]]))
-    conn.close()
+        conn.close()
+        await update.message.reply_text(f"✅ {service.upper()} এর নম্বরগুলো যোগ করা হয়েছে!")
+        del context.user_data['doc']
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-    app.add_handler(CallbackQueryHandler(get_numbers, pattern="get_num"))
+    app.add_handler(MessageHandler(filters.TEXT, handle_text))
     app.run_polling()
