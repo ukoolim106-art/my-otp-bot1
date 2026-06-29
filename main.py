@@ -15,29 +15,34 @@ def init_db():
 
 init_db()
 
-# মেইন মেনু
+# মেনু ডিজাইন
 def get_main_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📱 WhatsApp", callback_data="wa"), InlineKeyboardButton("✈️ Telegram", callback_data="tg")],
         [InlineKeyboardButton("📸 Instagram", callback_data="ig"), InlineKeyboardButton("🔵 Facebook", callback_data="fb")],
-        [InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin")]
+        [InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_menu")]
     ])
 
+def get_admin_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 স্ট্যাটাস", callback_data="ad_status"), InlineKeyboardButton("📥 নম্বর আপলোড", callback_data="ad_up")],
+        [InlineKeyboardButton("🧹 সব রিসেট", callback_data="ad_reset"), InlineKeyboardButton("🔙 মেনুতে ফিরুন", callback_data="back")]
+    ])
+
+# হ্যান্ডলারসমূহ
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✨ স্বাগতম! আপনার কাঙ্ক্ষিত সেবাটি বেছে নিন:", reply_markup=get_main_menu())
+    await update.message.reply_text("✨ স্বাগতম! আপনার সেবা বেছে নিন:", reply_markup=get_main_menu())
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
 
-    if data == "admin":
-        if query.from_user.id == ADMIN_ID:
-            await query.edit_message_text("⚙️ **অ্যাডমিন প্যানেল**\n\nফাইল আপলোড করুন (txt) নম্বর যোগ করতে।\nবাটনে ক্লিক করলে ২টা নম্বর পাবেন।", 
-                                          reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 মেনুতে ফিরুন", callback_data="back")]]))
-        else:
-            await query.answer("❌ আপনি অ্যাডমিন নন!", show_alert=True)
+    # অ্যাডমিন মেনু
+    if data == "admin_menu" and query.from_user.id == ADMIN_ID:
+        await query.edit_message_text("⚙️ **অ্যাডমিন প্যানেল**\n\nসেবা নির্বাচন করুন:", reply_markup=get_admin_menu())
     
+    # ইউজার সার্ভিস
     elif data in ["wa", "tg", "ig", "fb"]:
         conn = sqlite3.connect('numbers.db')
         c = conn.cursor()
@@ -45,47 +50,53 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rows = c.fetchall()
         
         if len(rows) < 2:
-            await query.edit_message_text("❌ নম্বর শেষ! অ্যাডমিনকে জানান।", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙", callback_data="back")]]))
+            await query.edit_message_text("❌ নম্বর শেষ! অ্যাডমিনকে জানান।", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 মেনু", callback_data="back")]]))
         else:
             num1, num2 = rows[0][0], rows[1][0]
             c.execute('DELETE FROM nums WHERE number IN (?, ?)', (num1, num2))
             conn.commit()
-            await query.edit_message_text(f"✅ {data.upper()} নম্বর:\n\n1. {num1}\n2. {num2}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙", callback_data="back")]]))
+            await query.edit_message_text(f"✅ আপনার নম্বর:\n\n1. {num1}\n2. {num2}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 মেনু", callback_data="back")]]))
         conn.close()
 
+    # অ্যাডমিন ফিচার লজিক
+    elif data == "ad_status":
+        conn = sqlite3.connect('numbers.db')
+        c = conn.cursor()
+        c.execute('SELECT service, COUNT(*) FROM nums GROUP BY service')
+        stats = "\n".join([f"{row[0].upper()}: {row[1]}" for row in c.fetchall()])
+        await query.edit_message_text(f"📊 **স্ট্যাটাস:**\n{stats or 'ডাটাবেস খালি'}", reply_markup=get_admin_menu())
+        conn.close()
+    
+    elif data == "ad_up":
+        await query.edit_message_text("ফাইলটি (txt) পাঠান এবং ফাইলটির ক্যাপশনে সার্ভিস নাম লিখুন (wa, tg, ig, fb)।")
+    
     elif data == "back":
-        await query.edit_message_text("✨ স্বাগতম! আপনার কাঙ্ক্ষিত সেবাটি বেছে নিন:", reply_markup=get_main_menu())
+        await query.edit_message_text("✨ স্বাগতম! আপনার সেবা বেছে নিন:", reply_markup=get_main_menu())
 
-# ফাইল আপলোড সিস্টেম
+# ফাইল আপলোড হ্যান্ডলার
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     
-    # ইউজারকে জিজ্ঞেস করা কোন সার্ভিসের ফাইল
-    await update.message.reply_text("এই ফাইলটি কোন সার্ভিসের জন্য? (wa, tg, ig, অথবা fb লিখে রিপ্লাই দিন)")
-    context.user_data['doc'] = update.message.document
+    service = update.message.caption.lower() if update.message.caption else None
+    if service not in ['wa', 'tg', 'ig', 'fb']:
+        await update.message.reply_text("❌ ভুল! ক্যাপশনে wa, tg, ig অথবা fb লিখুন।")
+        return
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if 'doc' in context.user_data:
-        service = update.message.text.lower()
-        if service not in ['wa', 'tg', 'ig', 'fb']: return
-        
-        file = await context.user_data['doc'].get_file()
-        await file.download_to_drive("temp.txt")
-        
-        conn = sqlite3.connect('numbers.db')
-        c = conn.cursor()
-        with open("temp.txt", "r") as f:
-            for line in f:
-                if line.strip(): c.execute('INSERT INTO nums (service, number) VALUES (?, ?)', (service, line.strip()))
-        conn.commit()
-        conn.close()
-        await update.message.reply_text(f"✅ {service.upper()} এর নম্বরগুলো যোগ করা হয়েছে!")
-        del context.user_data['doc']
+    file = await update.message.document.get_file()
+    await file.download_to_drive("temp.txt")
+    
+    conn = sqlite3.connect('numbers.db')
+    c = conn.cursor()
+    with open("temp.txt", "r") as f:
+        for line in f:
+            if line.strip(): c.execute('INSERT INTO nums (service, number) VALUES (?, ?)', (service, line.strip()))
+    conn.commit()
+    conn.close()
+    await update.message.reply_text(f"✅ {service.upper()} এর নম্বর যোগ হয়েছে!")
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-    app.add_handler(MessageHandler(filters.TEXT, handle_text))
     app.run_polling()
