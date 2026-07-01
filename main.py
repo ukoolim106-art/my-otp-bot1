@@ -1,221 +1,126 @@
+import os
 import time
 import sqlite3
 import telebot
 from telebot import types
 
-# ================= CONFIG =================
-API_TOKEN = "YOUR_NEW_BOT_TOKEN"
-ADMIN_ID = 8531139387
 
-bot = telebot.TeleBot(API_TOKEN)
+TOKEN = os.getenv("API_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+
+bot = telebot.TeleBot(TOKEN)
 
 
-# ================= DATABASE =================
-def db():
+# DATABASE
+def connect():
     return sqlite3.connect("database.db")
 
 
-def init_db():
-    conn = db()
-    cur = conn.cursor()
+def setup():
+    con = connect()
+    cur = con.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users(
+        id INTEGER PRIMARY KEY,
+        username TEXT
+    )
+    """)
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS numbers(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        phone_number TEXT UNIQUE,
-        status TEXT DEFAULT 'available'
+        number TEXT UNIQUE,
+        status TEXT DEFAULT 'free'
     )
     """)
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users(
-        user_id INTEGER PRIMARY KEY,
-        username TEXT,
-        join_date TEXT
+    con.commit()
+    con.close()
+
+
+setup()
+
+
+def menu():
+    kb = types.ReplyKeyboardMarkup(
+        resize_keyboard=True
     )
-    """)
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS user_numbers(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        phone_number TEXT
+    kb.add(
+        "📱 Get Number",
+        "📋 My Numbers"
     )
-    """)
 
-    conn.commit()
-    conn.close()
-
-
-init_db()
-
-
-def register_user(user):
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute(
-        "INSERT OR IGNORE INTO users VALUES(?,?,?)",
-        (
-            user.id,
-            user.username or "NoUsername",
-            time.strftime("%Y-%m-%d")
+    if ADMIN_ID:
+        kb.add(
+            "➕ Add Number",
+            "👥 Users"
         )
-    )
-
-    conn.commit()
-    conn.close()
-
-
-# ================= MENU =================
-
-def main_menu():
-    kb = types.ReplyKeyboardMarkup(
-        resize_keyboard=True
-    )
-
-    kb.add(
-        "💬 WhatsApp",
-        "✈️ Telegram"
-    )
-    kb.add(
-        "📷 Instagram",
-        "📘 Facebook"
-    )
-    kb.add(
-        "👤 My Account",
-        "❓ Help"
-    )
 
     return kb
 
 
-def admin_menu():
-    kb = types.ReplyKeyboardMarkup(
-        resize_keyboard=True
-    )
-
-    kb.add(
-        "➕ Add Number",
-        "📥 Bulk Add"
-    )
-
-    kb.add(
-        "📋 All Numbers",
-        "🗑 Delete Number"
-    )
-
-    kb.add(
-        "♻ Reset",
-        "👥 Users"
-    )
-
-    kb.add(
-        "📊 Stats",
-        "📢 Broadcast"
-    )
-
-    return kb
-
-
-
-# ================= START =================
 
 @bot.message_handler(commands=["start"])
 def start(message):
 
-    register_user(message.from_user)
+    con=connect()
+    cur=con.cursor()
+
+    cur.execute(
+        "INSERT OR IGNORE INTO users VALUES(?,?)",
+        (
+            message.from_user.id,
+            message.from_user.username
+        )
+    )
+
+    con.commit()
+    con.close()
+
 
     bot.send_message(
         message.chat.id,
-        "🤖 Welcome To Number Bot",
-        reply_markup=main_menu()
+        "🤖 Bot Online",
+        reply_markup=menu()
     )
 
 
 
-@bot.message_handler(commands=["admin"])
-def admin(message):
-
-    if message.from_user.id == ADMIN_ID:
-
-        bot.send_message(
-            message.chat.id,
-            "🔐 Admin Panel",
-            reply_markup=admin_menu()
-        )
-
-    else:
-        bot.send_message(
-            message.chat.id,
-            "❌ Access Denied"
-        )
-
-
-
-# ================= BUTTONS =================
 
 @bot.message_handler(func=lambda m: True)
-def buttons(message):
+def handler(message):
 
-    register_user(message.from_user)
-
-    text = message.text
-    uid = message.from_user.id
+    text=message.text
 
 
-    if text == "💬 WhatsApp":
+    if text=="📱 Get Number":
 
-        kb = types.ReplyKeyboardMarkup(
-            resize_keyboard=True
-        )
-
-        kb.add(
-            "📱 Get Number",
-            "📋 My Numbers"
-        )
-
-        kb.add("🔙 Back")
-
-        bot.send_message(
-            message.chat.id,
-            "WhatsApp Menu",
-            reply_markup=kb
-        )
-
-
-
-    elif text == "📱 Get Number":
-
-        conn=db()
-        cur=conn.cursor()
+        con=connect()
+        cur=con.cursor()
 
         cur.execute(
-            "SELECT phone_number FROM numbers WHERE status='available' LIMIT 1"
+            "SELECT number FROM numbers WHERE status='free' LIMIT 1"
         )
 
         data=cur.fetchone()
 
+
         if data:
 
-            number=data[0]
+            num=data[0]
 
             cur.execute(
-                "UPDATE numbers SET status='used' WHERE phone_number=?",
-                (number,)
+                "UPDATE numbers SET status='used' WHERE number=?",
+                (num,)
             )
 
-            cur.execute(
-                "INSERT INTO user_numbers(user_id,phone_number) VALUES(?,?)",
-                (uid,number)
-            )
-
-            conn.commit()
+            con.commit()
 
             bot.send_message(
                 message.chat.id,
-                f"✅ Your Number:\n`{number}`",
-                parse_mode="Markdown"
+                f"✅ Your Number:\n{num}"
             )
 
         else:
@@ -224,123 +129,91 @@ def buttons(message):
                 "❌ No number available"
             )
 
-        conn.close()
+
+        con.close()
 
 
 
-    elif text == "📋 My Numbers":
+    elif text=="📋 My Numbers":
 
-        conn=db()
-        cur=conn.cursor()
+        bot.send_message(
+            message.chat.id,
+            "Your numbers list"
+        )
+
+
+
+    elif text=="➕ Add Number":
+
+
+        if message.from_user.id != ADMIN_ID:
+            return
+
+
+        msg=bot.send_message(
+            message.chat.id,
+            "Send number"
+        )
+
+        bot.register_next_step_handler(
+            msg,
+            add_number
+        )
+
+
+
+
+    elif text=="👥 Users":
+
+        if message.from_user.id != ADMIN_ID:
+            return
+
+
+        con=connect()
+        cur=con.cursor()
 
         cur.execute(
-            "SELECT phone_number FROM user_numbers WHERE user_id=?",
-            (uid,)
+            "SELECT COUNT(*) FROM users"
         )
 
-        rows=cur.fetchall()
-        conn.close()
+        total=cur.fetchone()[0]
 
-        msg="📋 Your Numbers:\n"
+        con.close()
 
-        for r in rows:
-            msg+=f"\n📞 {r[0]}"
 
         bot.send_message(
             message.chat.id,
-            msg
+            f"Total users: {total}"
         )
 
 
 
-    elif text=="🔙 Back":
-
-        bot.send_message(
-            message.chat.id,
-            "Home",
-            reply_markup=main_menu()
-        )
-
-
-    # ============ ADMIN ============
-
-    elif uid==ADMIN_ID:
-
-
-        if text=="➕ Add Number":
-
-            m=bot.send_message(
-                message.chat.id,
-                "Send number:"
-            )
-
-            bot.register_next_step_handler(
-                m,
-                add_number
-            )
-
-
-
-        elif text=="👥 Users":
-
-            conn=db()
-            cur=conn.cursor()
-
-            cur.execute(
-                "SELECT COUNT(*) FROM users"
-            )
-
-            total=cur.fetchone()[0]
-
-            conn.close()
-
-            bot.send_message(
-                message.chat.id,
-                f"Users: {total}"
-            )
-
-
-
-        elif text=="📊 Stats":
-
-            conn=db()
-            cur=conn.cursor()
-
-            total=cur.execute(
-                "SELECT COUNT(*) FROM numbers"
-            ).fetchone()[0]
-
-            conn.close()
-
-            bot.send_message(
-                message.chat.id,
-                f"📊 Total Numbers: {total}"
-            )
-
-
-
-# ================= FUNCTIONS =================
 
 def add_number(message):
 
-    number=message.text.strip()
+    if message.from_user.id != ADMIN_ID:
+        return
+
+
+    num=message.text.strip()
 
     try:
 
-        conn=db()
-        cur=conn.cursor()
+        con=connect()
+        cur=con.cursor()
 
         cur.execute(
-            "INSERT INTO numbers(phone_number) VALUES(?)",
-            (number,)
+            "INSERT INTO numbers(number) VALUES(?)",
+            (num,)
         )
 
-        conn.commit()
-        conn.close()
+        con.commit()
+        con.close()
+
 
         bot.send_message(
             message.chat.id,
-            "✅ Added"
+            "✅ Number Added"
         )
 
     except:
