@@ -1,14 +1,12 @@
-import os
+import time
 import telebot
 from telebot import types
-from flask import Flask, request
 
 # কনফিগারেশন
 API_TOKEN = '8077162426:AAFSUqmpgP-tBdPYk-M51EQz3T-KIt_nRn0'
 ADMIN_ID = 8531139387
 
 bot = telebot.TeleBot(API_TOKEN)
-server = Flask(__name__)
 
 # --- কিবোর্ড মেনু তৈরি ---
 def main_menu():
@@ -92,20 +90,9 @@ def handle_menu(message):
     else:
         bot.send_message(message.chat.id, "⚠️ Invalid option or unauthorized command.")
 
-# Railway Hosting Webhook & Server Setup
-@server.route('/' + API_TOKEN, methods=['POST'])
-def getMessage():
-    json_string = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
-    bot.process_new_updates([update])
-    return "!", 200
-
-@server.route("/")
-def webhook():
-    bot.remove_webhook()
-    # Railway automatically assigns a PORT env variable
-    bot.set_webhook(url='https://' + request.host + '/' + API_TOKEN)
-    return "Bot is running!", 200
-
+# বট রানিং রাখার স্থায়ী লুপ ও পূর্বের Webhook রিমুভ করা
 if __name__ == "__main__":
-    server.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
+    print("🤖 Bot is starting via Polling...")
+    bot.remove_webhook()
+    time.sleep(0.5)
+    bot.infinity_polling(timeout=10, long_polling_timeout=5)
