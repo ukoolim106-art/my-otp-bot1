@@ -68,10 +68,9 @@ def service_menu():
 
 def admin_menu():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add('➕ Add Number', '📥 Bulk Add Numbers')
-    markup.add('📋 View All Numbers', '🗑 Delete Number')
-    markup.add('♻ Reset Used Numbers', '👥 Total Users')
-    markup.add('📊 Statistics', '📢 Broadcast Message')
+    markup.add('🏠 Dashboard', '👥 User Management')
+    markup.add('📱 Account Manager', '💬 Message Center')
+    markup.add('📤 Number Upload', '📊 Reports')
     markup.add('⚙ Settings')
     return markup
 
@@ -89,18 +88,70 @@ def send_welcome(message):
 @bot.message_handler(commands=['admin'])
 def send_admin_panel(message):
     if message.from_user.id == ADMIN_ID:
-        bot.send_message(message.chat.id, "🔐 **Welcome to Admin Panel**", parse_mode="Markdown", reply_markup=admin_menu())
+        send_dashboard_view(message.chat.id)
     else:
         bot.send_message(message.chat.id, "❌ You are not authorized to use this command.")
 
-# --- টেক্সট মেসেজ হ্যান্ডলার (সব মেইন কমান্ড) ---
+# --- আপনার ডিজাইন করা প্রিমিয়াম প্যানেল উইজেট ---
+def send_dashboard_view(chat_id):
+    conn = sqlite3.connect('database.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    # ডেটাবেস থেকে রিয়াল লাইভ কাউন্ট
+    cursor.execute("SELECT COUNT(*) FROM users")
+    db_users = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM numbers WHERE status='available'")
+    db_active_stock = cursor.fetchone()[0]
+    
+    conn.close()
+
+    # হুবহু বক্স লেআউট ডিজাইন টেক্সট
+    dashboard_text = (
+        "╔══════════════════════════════════╗\n"
+        "║ 🚀 SOCIAL ADMIN PRO        👤 Admin ║\n"
+        "╠══════════════════════════════════╣\n"
+        "║                                  ║\n"
+        "║  🏠 Dashboard                    ║\n"
+        "║  👥 User Management              ║\n"
+        "║  📱 Account Manager              ║\n"
+        "║                                  ║\n"
+        "║  ┌─────────┐ ┌─────────┐         ║\n"
+        "║  │ Users   │ │ Active  │         ║\n"
+        f"║  │ {db_users:<7} │ │ {db_active_stock:<7} │         ║\n"
+        "║  └─────────┘ └─────────┘         ║\n"
+        "║                                  ║\n"
+        "║  📲 WhatsApp                     ║\n"
+        "║     • Number Upload              ║\n"
+        "║     • Account List               ║\n"
+        "║     • Status                     ║\n"
+        "║                                  ║\n"
+        "║  ✈ Telegram                      ║\n"
+        "║     • Bot Manage                 ║\n"
+        "║     • Messages                   ║\n"
+        "║                                  ║\n"
+        "║  📸 Instagram                    ║\n"
+        "║     • Account Control             ║\n"
+        "║                                  ║\n"
+        "║  📘 Facebook                     ║\n"
+        "║     • Page Manage                ║\n"
+        "║                                  ║\n"
+        "║  💬 Message Center               ║\n"
+        "║  📊 Reports                      ║\n"
+        "║  ⚙ Settings                      ║\n"
+        "╚══════════════════════════════════╝"
+    )
+    # ফিক্সড মনোস্পেস ফন্ট ব্যবহার করার জন্য কোড ব্লকে পাঠানো হলো যেন বক্স আঁকাবাঁকা না হয়
+    bot.send_message(chat_id, f"`{dashboard_text}`", parse_mode="Markdown", reply_markup=admin_menu())
+
+# --- টেক্সট মেসেজ হ্যান্ডলার ---
 @bot.message_handler(func=lambda message: True)
 def handle_menu(message):
     user_id = message.from_user.id
     text = message.text
     register_user(user_id, message.from_user.username)
 
-    # সোশাল মিডিয়া বাটন হ্যান্ডলিং (ইউজারদের জন্য)
+    # ইউজার প্যানেল কন্ট্রোল
     if text in ['💬 WhatsApp', '✈️ Telegram', '📷 Instagram', '📘 Facebook']:
         service_clean = text.replace('💬 ', '').replace('✈️ ', '').replace('📷 ', '').replace('📘 ', '').strip()
         msg = bot.send_message(message.chat.id, f"📌 **{service_clean} Menu**\n\nনিচের বাটন সিলেক্ট করুন:", parse_mode="Markdown", reply_markup=service_menu())
@@ -117,81 +168,50 @@ def handle_menu(message):
         bot.send_message(message.chat.id, "🏠 Returning to Main Menu...", reply_markup=main_menu())
         return
 
-    # অ্যাডমিন প্যানেল বাটন হ্যান্ডলিং (শুধুমাত্র ADMIN_ID ম্যাচ করলে কাজ করবে)
+    # নিউ সোশাল অ্যাডমিন বাটন কন্ট্রোল
     if user_id == ADMIN_ID:
-        if text in ['➕ Add Number', '📥 Bulk Add Numbers']:
+        if text == '🏠 Dashboard':
+            send_dashboard_view(message.chat.id)
+            return
+            
+        elif text == '👥 User Management':
+            conn = sqlite3.connect('database.db', check_same_thread=False)
+            res = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            conn.close()
+            bot.send_message(message.chat.id, f"👥 **Total Registered Users:** `{res}`", parse_mode="Markdown")
+            return
+            
+        elif text == '📱 Account Manager' or text == '📊 Reports':
+            conn = sqlite3.connect('database.db', check_same_thread=False)
+            all_num = conn.execute("SELECT COUNT(*) FROM numbers").fetchone()[0]
+            avail_num = conn.execute("SELECT COUNT(*) FROM numbers WHERE status='available'").fetchone()[0]
+            used_num = conn.execute("SELECT COUNT(*) FROM numbers WHERE status='used'").fetchone()[0]
+            conn.close()
+            stats = f"📊 **Inventory Report:**\n\n🔹 Total Stock: `{all_num}`\n✅ Available: `{avail_num}`\n❌ Sold/Used: `{used_num}`"
+            bot.send_message(message.chat.id, stats, parse_mode="Markdown")
+            return
+            
+        elif text == '💬 Message Center':
+            msg = bot.send_message(message.chat.id, "📢 বটের সমস্ত একটিভ ইউজারের কাছে গ্লোবাল নোটিফিকেশন পাঠাতে আপনার মেসেজটি লিখুন:")
+            bot.register_next_step_handler(msg, process_broadcast)
+            return
+            
+        elif text == '📤 Number Upload':
             msg = bot.send_message(
                 message.chat.id, 
-                "📝 **নম্বর যোগ করার নিয়ম:**\n\nনিচের ফরম্যাটে প্রতি লাইনে সার্ভিস ও নম্বর লিখে একসাথে পাঠিয়ে দিন:\n\n`WhatsApp +8801700000001`\n`Telegram +8801700000002`\n`Facebook +8801700000003`", 
+                "📝 **নম্বর যোগ করার নিয়ম:**\n\nনিচের ফরম্যাটে প্রতি লাইনে সার্ভিস ও নম্বর লিখে একসাথে পাঠিয়ে দিন:\n\n`WhatsApp +8801700000001`\n`Telegram +8801700000002`", 
                 parse_mode="Markdown"
             )
             bot.register_next_step_handler(msg, process_auto_add_numbers)
             return
             
-        elif text == '📋 View All Numbers':
-            conn = sqlite3.connect('database.db', check_same_thread=False)
-            cursor = conn.cursor()
-            cursor.execute("SELECT service, phone_number, status FROM numbers")
-            rows = cursor.fetchall()
-            conn.close()
-            if rows:
-                response = "📋 **All Numbers in Database:**\n\n"
-                for r in rows:
-                    response += f"🔹 [{r[0]}] `{r[1]}` - Status: `{r[2]}`\n"
-            else:
-                response = "❌ No numbers found."
-            bot.send_message(message.chat.id, response, parse_mode="Markdown")
-            return
-            
-        elif text == '🗑 Delete Number':
-            msg = bot.send_message(message.chat.id, "🗑 Send the exact number to delete:")
-            bot.register_next_step_handler(msg, process_delete_number)
-            return
-            
-        elif text == '♻ Reset Used Numbers':
-            conn = sqlite3.connect('database.db', check_same_thread=False)
-            cursor = conn.cursor()
-            cursor.execute("UPDATE numbers SET status='available'")
-            cursor.execute("DELETE FROM user_numbers")
-            conn.commit()
-            conn.close()
-            bot.send_message(message.chat.id, "♻️ All used numbers have been reset to available!")
-            return
-            
-        elif text == '👥 Total Users':
-            conn = sqlite3.connect('database.db', check_same_thread=False)
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM users")
-            res = cursor.fetchone()
-            total_users = res[0] if res else 0
-            conn.close()
-            bot.send_message(message.chat.id, f"👥 **Total Registered Users:** `{total_users}`", parse_mode="Markdown")
-            return
-            
-        elif text == '📊 Statistics':
-            conn = sqlite3.connect('database.db', check_same_thread=False)
-            cursor = conn.cursor()
-            all_num = cursor.execute("SELECT COUNT(*) FROM numbers").fetchone()[0]
-            avail_num = cursor.execute("SELECT COUNT(*) FROM numbers WHERE status='available'").fetchone()[0]
-            used_num = cursor.execute("SELECT COUNT(*) FROM numbers WHERE status='used'").fetchone()[0]
-            conn.close()
-            stats = f"📊 **Bot Statistics:**\n\n🔹 Total: `{all_num}`\n✅ Available: `{avail_num}`\n❌ Used: `{used_num}`"
-            bot.send_message(message.chat.id, stats, parse_mode="Markdown")
-            return
-            
-        elif text == '📢 Broadcast Message':
-            msg = bot.send_message(message.chat.id, "📢 Send the message to broadcast:")
-            bot.register_next_step_handler(msg, process_broadcast)
-            return
-            
         elif text == '⚙ Settings':
-            bot.send_message(message.chat.id, "⚙ **Bot Settings:** System is active.", parse_mode="Markdown")
+            bot.send_message(message.chat.id, "⚙ **System Preferences:**\nAll services are working perfectly under core micro-server.", parse_mode="Markdown")
             return
 
-    # কোনো শর্তের সাথে না মিললে
     bot.send_message(message.chat.id, "⚠️ Invalid option or unauthorized command.")
 
-# --- সার্ভিস সাব-মেনু অপশন হ্যান্ডলার ---
+# --- সাব-মেনু সার্ভিস লজিক ---
 def handle_service_options(message, service):
     user_id = message.from_user.id
     text = message.text
@@ -216,23 +236,3 @@ def handle_service_options(message, service):
         conn = sqlite3.connect('database.db', check_same_thread=False)
         cursor = conn.cursor()
         cursor.execute("SELECT phone_number FROM user_numbers WHERE user_id=? AND service=?", (user_id, service))
-        rows = cursor.fetchall()
-        conn.close()
-        
-        if rows:
-            response = f"📋 **Your Taken {service} Numbers:**\n\n"
-            for r in rows:
-                response += f"📞 `{r[0]}`\n"
-        else:
-            response = f"📦 You haven't taken any {service} numbers yet."
-        bot.send_message(message.chat.id, response, parse_mode="Markdown", reply_markup=main_menu())
-
-    elif text == '🔙 Back':
-        bot.send_message(message.chat.id, "🏠 Returning to Main Menu...", reply_markup=main_menu())
-    else:
-        handle_menu(message)
-
-# --- নম্বর আপলোড ব্যাকএন্ড (টেক্সট অটো-ডিটেক্ট) ---
-def process_auto_add_numbers(message):
-    if not message.text or message.text in ['🔙 Back', '/start', '/admin']: return
-    
