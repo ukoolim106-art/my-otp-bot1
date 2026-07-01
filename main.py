@@ -1,4 +1,5 @@
 import time
+import sqlite3
 import telebot
 from telebot import types
 
@@ -8,7 +9,23 @@ ADMIN_ID = 8531139387
 
 bot = telebot.TeleBot(API_TOKEN)
 
-# --- কিবোর্ড মেনু তৈরি ---
+# --- ডাটাবেস সেটআপ ---
+def init_db():
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS numbers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone_number TEXT UNIQUE,
+            status TEXT DEFAULT 'available'
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# --- কিবোর্ড মেনু ---
 def main_menu():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add('💬 WhatsApp', '✈️ Telegram')
@@ -34,21 +51,16 @@ def admin_menu():
 # --- কমান্ড হ্যান্ডলার ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.send_message(
-        message.chat.id, 
-        "🤖 **Welcome to Number Panel Bot**\n\nPlease select an option from the menu:", 
-        parse_mode="Markdown", 
-        reply_markup=main_menu()
-    )
+    bot.send_message(message.chat.id, "🤖 **Welcome to Number Panel Bot**", parse_mode="Markdown", reply_markup=main_menu())
 
 @bot.message_handler(commands=['admin'])
 def send_admin_panel(message):
     if message.from_user.id == ADMIN_ID:
         bot.send_message(message.chat.id, "🔐 **Welcome to Admin Panel**", parse_mode="Markdown", reply_markup=admin_menu())
     else:
-        bot.send_message(message.chat.id, "❌ You are not authorized to use this command.")
+        bot.send_message(message.chat.id, "❌ You are not authorized.")
 
-# --- টেক্সট মেসেজ হ্যান্ডলার ---
+# --- টেক্সট এবং স্টেপ হ্যান্ডলার ---
 @bot.message_handler(func=lambda message: True)
 def handle_menu(message):
     user_id = message.from_user.id
@@ -56,41 +68,92 @@ def handle_menu(message):
 
     if text == '💬 WhatsApp':
         bot.send_message(message.chat.id, "💬 **WhatsApp Menu**", parse_mode="Markdown", reply_markup=whatsapp_menu())
-    elif text in ['✈️ Telegram', '📷 Instagram', '📘 Facebook']:
-        bot.send_message(message.chat.id, f"🔄 {text} service is coming soon!")
-    elif text == '👤 My Account':
-        bot.send_message(message.chat.id, f"👤 **Your Account Info:**\nID: `{user_id}`\nStatus: Active", parse_mode="Markdown")
-    elif text == '❓ Help':
-        bot.send_message(message.chat.id, "❓ Contact support if you face any issues.")
-    elif text == '📱 Get Free Number':
-        bot.send_message(message.chat.id, "⏳ Generating your free number... Please wait.")
-    elif text == '📋 My Numbers':
-        bot.send_message(message.chat.id, "📦 You haven't taken any numbers yet.")
     elif text == '🔙 Back':
-        bot.send_message(message.chat.id, "🏠 Returning to Main Menu...", reply_markup=main_menu())
-    elif user_id == ADMIN_ID:
-        if text == '➕ Add Number':
-            bot.send_message(message.chat.id, "📝 Send the number you want to add.")
-        elif text == '📥 Bulk Add Numbers':
-            bot.send_message(message.chat.id, "📂 Please upload the text file containing numbers.")
-        elif text == '📋 View All Numbers':
-            bot.send_message(message.chat.id, "📊 Displaying all numbers in database...")
-        elif text == '🗑 Delete Number':
-            bot.send_message(message.chat.id, "🗑 Enter the number you want to delete.")
-        elif text == '♻ Reset Used Numbers':
-            bot.send_message(message.chat.id, "✅ Used numbers list has been reset.")
-        elif text == '👥 Total Users':
-            bot.send_message(message.chat.id, "👥 Fetching total users count...")
-        elif text == '📊 Statistics':
-            bot.send_message(message.chat.id, "📈 System and sales statistics...")
-        elif text == '📢 Broadcast Message':
-            bot.send_message(message.chat.id, "📢 Send the message you want to broadcast to all users.")
-        elif text == '⚙ Settings':
-            bot.send_message(message.chat.id, "⚙ Bot Settings Panel.")
-    else:
-        bot.send_message(message.chat.id, "⚠️ Invalid option or unauthorized command.")
+        bot.send_message(message.chat.id, "🏠 Main Menu", reply_markup=main_menu())
+    
+    # অ্যাডমিন একশন: একটি নম্বর যোগ করা
+    elif user_id == ADMIN_ID and text == '➕ Add Number':
+        msg = bot.send_message(message.chat.id, "📝 Send the number you want to add (e.g., +880123456789):")
+        bot.register_next_step_handler(msg, process_add_number)
+        
+    # অ্যাডমিন একশন: ফাইল দিয়ে একসাথে অনেক নম্বর যোগ করা
+    elif user_id == ADMIN_ID and text == '📥 Bulk Add Numbers':
+        msg = bot.send_message(message.chat.id, "📂 Please upload and send the `.txt` file containing your numbers (one number per line):")
+        bot.register_next_step_handler(msg, process_bulk_numbers)
+        
+    # অ্যাডমিন একশন: সব নম্বর দেখা
+    elif user_id == ADMIN_ID and text == '📋 View All Numbers':
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT phone_number, status FROM numbers")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if rows:
+            response = "📋 **All Numbers in Database:**\n\n"
+            for row in rows:
+                response += f"📞 `{row[0]}` - Status: {row[1]}\n"
+        else:
+            response = "❌ No numbers found in database."
+        bot.send_message(message.chat.id, response, parse_mode="Markdown")
 
-# বট রানিং রাখার স্থায়ী লুপ ও পূর্বের Webhook রিমুভ করা
+# ১টি নম্বর সেভ করার ফাংশন
+def process_add_number(message):
+    if not message.text or message.text in ['🔙 Back', '/start', '/admin']:
+        return
+    
+    phone = message.text.strip()
+    try:
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO numbers (phone_number) VALUES (?)", (phone,))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, f"✅ Number `{phone}` successfully added!", parse_mode="Markdown")
+    except sqlite3.IntegrityError:
+        bot.send_message(message.chat.id, "❌ This number already exists.")
+
+# ফাইল থেকে বাল্ক নম্বর সেভ করার ফাংশн
+def process_bulk_numbers(message):
+    # ইউজার যদি ফাইল না পাঠিয়ে অন্য কিছু করে
+    if message.content_type != 'document':
+        bot.send_message(message.chat.id, "❌ Invalid input. Please click '📥 Bulk Add Numbers' again and upload a text file.")
+        return
+
+    try:
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        # ফাইলটি টেক্সট হিসেবে রিড করা (নম্বরগুলো লাইন বাই লাইন আলাদা করা)
+        content = downloaded_file.decode('utf-8')
+        lines = content.splitlines()
+        
+        added_count = 0
+        duplicate_count = 0
+        
+        conn = sqlite3.connect('database.db')
+        cursor = conn.cursor()
+        
+        for line in lines:
+            phone = line.strip()
+            if phone:  # খালি লাইন বাদ দেওয়ার জন্য
+                try:
+                    cursor.execute("INSERT INTO numbers (phone_number) VALUES (?)", (phone,))
+                    added_count += 1
+                except sqlite3.IntegrityError:
+                    duplicate_count += 1
+                    
+        conn.commit()
+        conn.close()
+        
+        bot.send_message(
+            message.chat.id, 
+            f"📊 **Bulk Import Result:**\n\n✅ Successfully added: `{added_count}` numbers.\n⚠️ Duplicates skipped: `{duplicate_count}`.", 
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Error processing file: {str(e)}")
+
 if __name__ == "__main__":
     print("🤖 Bot is starting via Polling...")
     bot.remove_webhook()
