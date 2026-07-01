@@ -116,7 +116,7 @@ def handle_menu(message):
         row = cursor.fetchone()
         
         if row:
-            selected_number = row[0] # Tuple ফিক্স করা হয়েছে
+            selected_number = row[0]  # ফিক্সড: Tuple থেকে স্ট্রিং নম্বর আলাদা করা হলো
             cursor.execute("UPDATE numbers SET status='used' WHERE phone_number=?", (selected_number,))
             cursor.execute("INSERT INTO user_numbers (user_id, phone_number) VALUES (?, ?)", (user_id, selected_number))
             conn.commit()
@@ -135,12 +135,12 @@ def handle_menu(message):
         if rows:
             response = "📋 **Your Taken Numbers:**\n\n"
             for r in rows:
-                response += f"📞 `{r[0]}`\n" # Tuple ফিক্স করা হয়েছে
+                response += f"📞 `{r[0]}`\n"  # ফিক্সড: Tuple ফিল্টারিং r[0]
         else:
             response = "📦 You haven't taken any numbers yet."
         bot.send_message(message.chat.id, response, parse_mode="Markdown")
 
-    # অ্যাডমিন প্যানেল একশন ভ্যালিডেশন
+    # অ্যাডমিন প্যানেল ভ্যালিডেশন
     elif user_id == ADMIN_ID:
         if text == '➕ Add Number':
             msg = bot.send_message(message.chat.id, "📝 Send the number you want to add:")
@@ -157,7 +157,7 @@ def handle_menu(message):
             if rows:
                 response = "📋 **All Numbers in Database:**\n\n"
                 for r in rows:
-                    response += f"📞 `{r[0]}` - Status: `{r[1]}`\n" # Tuple ফিক্স করা হয়েছে
+                    response += f"📞 `{r[0]}` - Status: `{r[1]}`\n"  # ফিক্সড: r[0] এবং r[1]
             else:
                 response = "❌ No numbers found."
             bot.send_message(message.chat.id, response, parse_mode="Markdown")
@@ -176,18 +176,19 @@ def handle_menu(message):
             conn = sqlite3.connect('database.db')
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM users")
-            total_users = cursor.fetchone()[0] # Tuple ফিক্স করা হয়েছে
+            res = cursor.fetchone()
+            total_users = res[0] if res else 0  # ফিক্সড: res[0]
             conn.close()
             bot.send_message(message.chat.id, f"👥 **Total Registered Users:** `{total_users}`", parse_mode="Markdown")
         elif text == '📊 Statistics':
             conn = sqlite3.connect('database.db')
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM numbers")
-            all_num = cursor.fetchone()[0] # Tuple ফিক্স করা হয়েছে
+            all_num = cursor.fetchone()[0]
             cursor.execute("SELECT COUNT(*) FROM numbers WHERE status='available'")
-            avail_num = cursor.fetchone()[0] # Tuple ফিক্স করা হয়েছে
+            avail_num = cursor.fetchone()[0]
             cursor.execute("SELECT COUNT(*) FROM numbers WHERE status='used'")
-            used_num = cursor.fetchone()[0] # Tuple ফিক্স করা হয়েছে
+            used_num = cursor.fetchone()[0]
             conn.close()
             stats = f"📊 **Bot Statistics:**\n\n🔹 Total: `{all_num}`\n✅ Available: `{avail_num}`\n❌ Used: `{used_num}`"
             bot.send_message(message.chat.id, stats, parse_mode="Markdown")
@@ -230,3 +231,4 @@ def process_bulk_numbers(message):
         cursor = conn.cursor()
         for line in lines:
             phone = line.strip()
+            if phone:
