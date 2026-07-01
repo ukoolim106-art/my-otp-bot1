@@ -1,9 +1,12 @@
+# main.py
+
 import os
-import time
 import sqlite3
 import telebot
 from telebot import types
+from dotenv import load_dotenv
 
+load_dotenv()
 
 TOKEN = os.getenv("API_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -11,18 +14,19 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 bot = telebot.TeleBot(TOKEN)
 
 
-# DATABASE
-def connect():
+# ---------- DATABASE ----------
+
+def db():
     return sqlite3.connect("database.db")
 
 
-def setup():
-    con = connect()
+def setup_db():
+    con = db()
     cur = con.cursor()
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users(
-        id INTEGER PRIMARY KEY,
+        user_id INTEGER PRIMARY KEY,
         username TEXT
     )
     """)
@@ -31,7 +35,15 @@ def setup():
     CREATE TABLE IF NOT EXISTS numbers(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         number TEXT UNIQUE,
-        status TEXT DEFAULT 'free'
+        status TEXT DEFAULT 'available'
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS taken(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        number TEXT
     )
     """)
 
@@ -39,10 +51,14 @@ def setup():
     con.close()
 
 
-setup()
+setup_db()
 
 
-def menu():
+
+# ---------- MENUS ----------
+
+def home_menu(is_admin=False):
+
     kb = types.ReplyKeyboardMarkup(
         resize_keyboard=True
     )
@@ -52,20 +68,53 @@ def menu():
         "📋 My Numbers"
     )
 
-    if ADMIN_ID:
+    kb.add(
+        "❓ Help"
+    )
+
+    if is_admin:
         kb.add(
-            "➕ Add Number",
-            "👥 Users"
+            "🔐 Admin Panel"
         )
 
     return kb
 
 
 
+def admin_menu():
+
+    kb = types.ReplyKeyboardMarkup(
+        resize_keyboard=True
+    )
+
+    kb.add(
+        "➕ Add Number",
+        "📥 Bulk Upload"
+    )
+
+    kb.add(
+        "📊 Statistics",
+        "👥 Users"
+    )
+
+    kb.add(
+        "📢 Broadcast"
+    )
+
+    kb.add(
+        "⬅ Back"
+    )
+
+    return kb
+
+
+
+# ---------- START ----------
+
 @bot.message_handler(commands=["start"])
 def start(message):
 
-    con=connect()
+    con=db()
     cur=con.cursor()
 
     cur.execute(
@@ -82,48 +131,58 @@ def start(message):
 
     bot.send_message(
         message.chat.id,
-        "🤖 Bot Online",
-        reply_markup=menu()
+        "🤖 Bot Online\nWelcome!",
+        reply_markup=home_menu(
+            message.from_user.id == ADMIN_ID
+        )
     )
 
 
 
+# ---------- BUTTON HANDLER ----------
 
 @bot.message_handler(func=lambda m: True)
-def handler(message):
+def buttons(message):
 
-    text=message.text
+    uid = message.from_user.id
+    text = message.text
 
 
-    if text=="📱 Get Number":
+    if text == "📱 Get Number":
 
-        con=connect()
+        con=db()
         cur=con.cursor()
 
         cur.execute(
-            "SELECT number FROM numbers WHERE status='free' LIMIT 1"
+            "SELECT number FROM numbers WHERE status='available' LIMIT 1"
         )
 
-        data=cur.fetchone()
+        row=cur.fetchone()
 
 
-        if data:
+        if row:
 
-            num=data[0]
+            number=row[0]
 
             cur.execute(
                 "UPDATE numbers SET status='used' WHERE number=?",
-                (num,)
+                (number,)
+            )
+
+            cur.execute(
+                "INSERT INTO taken(user_id,number) VALUES(?,?)",
+                (uid,number)
             )
 
             con.commit()
 
             bot.send_message(
                 message.chat.id,
-                f"✅ Your Number:\n{num}"
+                f"✅ Your number:\n{number}"
             )
 
         else:
+
             bot.send_message(
                 message.chat.id,
                 "❌ No number available"
@@ -134,95 +193,55 @@ def handler(message):
 
 
 
-    elif text=="📋 My Numbers":
+    elif text == "📋 My Numbers":
 
-        bot.send_message(
-            message.chat.id,
-            "Your numbers list"
-        )
-
-
-
-    elif text=="➕ Add Number":
-
-
-        if message.from_user.id != ADMIN_ID:
-            return
-
-
-        msg=bot.send_message(
-            message.chat.id,
-            "Send number"
-        )
-
-        bot.register_next_step_handler(
-            msg,
-            add_number
-        )
-
-
-
-
-    elif text=="👥 Users":
-
-        if message.from_user.id != ADMIN_ID:
-            return
-
-
-        con=connect()
+        con=db()
         cur=con.cursor()
 
         cur.execute(
-            "SELECT COUNT(*) FROM users"
+            "SELECT number FROM taken WHERE user_id=?",
+            (uid,)
         )
 
-        total=cur.fetchone()[0]
+        rows=cur.fetchall()
 
         con.close()
 
 
-        bot.send_message(
-            message.chat.id,
-            f"Total users: {total}"
-        )
+        msg="📋 Your numbers:\n"
 
-
-
-
-def add_number(message):
-
-    if message.from_user.id != ADMIN_ID:
-        return
-
-
-    num=message.text.strip()
-
-    try:
-
-        con=connect()
-        cur=con.cursor()
-
-        cur.execute(
-            "INSERT INTO numbers(number) VALUES(?)",
-            (num,)
-        )
-
-        con.commit()
-        con.close()
+        for r in rows:
+            msg += f"\n📞 {r[0]}"
 
 
         bot.send_message(
             message.chat.id,
-            "✅ Number Added"
+            msg
         )
 
-    except:
+
+
+    elif text == "🔐 Admin Panel":
+
+        if uid == ADMIN_ID:
+
+            bot.send_message(
+                message.chat.id,
+                "Admin Menu",
+                reply_markup=admin_menu()
+            )
+
+
+
+    elif text == "⬅ Back":
 
         bot.send_message(
             message.chat.id,
-            "❌ Already exists"
+            "Home",
+            reply_markup=home_menu(
+                uid == ADMIN_ID
+            )
         )
-
 
 
 print("BOT STARTED")
