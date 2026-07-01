@@ -1,159 +1,111 @@
-import logging
-import asyncio
-import aiosqlite
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+import os
+import telebot
+from telebot import types
+from flask import Flask, request
 
-# --- 💎 কনফিগারেশন ---
-TOKEN = "8077162426:AAE3m7u65xSZcT-8Jl9zqjSDye43-ftwUOg"
+# কনফিগারেশন
+API_TOKEN = '8077162426:AAFSUqmpgP-tBdPYk-M51EQz3T-KIt_nRn0'
 ADMIN_ID = 8531139387
-DB_FILE = 'premium_bot.db'
 
-# --- 🚀 ক্র্যাশ-প্রুফ লগিং সিস্টেম ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+bot = telebot.TeleBot(API_TOKEN)
+server = Flask(__name__)
 
-# --- 🏗️ ডাটাবেস ইনিশিয়ালাইজেশন ---
-async def init_db():
-    async with aiosqlite.connect(DB_FILE) as db:
-        await db.execute('CREATE TABLE IF NOT EXISTS nums (service TEXT, number TEXT)')
-        await db.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)')
-        await db.commit()
+# --- কিবোর্ড মেনু তৈরি ---
+def main_menu():
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup.add('💬 WhatsApp', '✈️ Telegram')
+    markup.add('📷 Instagram', '📘 Facebook')
+    markup.add('👤 My Account', '❓ Help')
+    return markup
 
-# --- 🎨 প্রিমিয়াম কালারফুল ইনলাইন মেনু ---
-def get_main_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📱 WhatsApp", callback_data="wa"), InlineKeyboardButton("✈️ Telegram", callback_data="tg")],
-        [InlineKeyboardButton("📸 Instagram", callback_data="ig"), InlineKeyboardButton("🔵 Facebook", callback_data="fb")],
-        [InlineKeyboardButton("⚙️ Admin Control", callback_data="admin_panel")]
-    ])
+def whatsapp_menu():
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup.add('📱 Get Free Number', '📋 My Numbers')
+    markup.add('🔙 Back')
+    return markup
 
-def get_admin_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 স্ট্যাটাস চেক", callback_data="ad_status"), InlineKeyboardButton("🧹 ডাটা রিসেট", callback_data="ad_reset")],
-        [InlineKeyboardButton("📢 ব্রডকাস্ট", callback_data="ad_broadcast"), InlineKeyboardButton("🔙 মেইন মেনু", callback_data="back")]
-    ])
+def admin_menu():
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup.add('➕ Add Number', '📥 Bulk Add Numbers')
+    markup.add('📋 View All Numbers', '🗑 Delete Number')
+    markup.add('♻ Reset Used Numbers', '👥 Total Users')
+    markup.add('📊 Statistics', '📢 Broadcast Message')
+    markup.add('⚙ Settings')
+    return markup
 
-# --- 🛠️ কোর হ্যান্ডলারসমূহ ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user_id = update.effective_user.id
-        async with aiosqlite.connect(DB_FILE) as db:
-            await db.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
-            await db.commit()
-            
-        welcome_text = (
-            "👋 *Welcome to Rocket OTP Bot!*\n\n"
-            "🚀 `28,958 monthly users rely on us.`\n\n"
-            "✨ *Select your service from below:*"
-        )
-        await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu())
-    except Exception as e:
-        logger.error(f"Start error: {e}")
+# --- কমান্ড হ্যান্ডলার ---
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.send_message(
+        message.chat.id, 
+        "🤖 **Welcome to Number Panel Bot**\n\nPlease select an option from the menu:", 
+        parse_mode="Markdown", 
+        reply_markup=main_menu()
+    )
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
+@bot.message_handler(commands=['admin'])
+def send_admin_panel(message):
+    if message.from_user.id == ADMIN_ID:
+        bot.send_message(message.chat.id, "🔐 **Welcome to Admin Panel**", parse_mode="Markdown", reply_markup=admin_menu())
+    else:
+        bot.send_message(message.chat.id, "❌ You are not authorized to use this command.")
 
-    try:
-        if data == "admin_panel":
-            if query.from_user.id == ADMIN_ID:
-                await query.edit_message_text("⚙️ *অ্যাডমিন ড্যাশবোর্ড*\n\nফাইল আপলোড করতে ক্যাপশনে সার্ভিস নাম (`wa`, `tg`, `ig`, `fb`) লিখে সরাসরি টেক্সট ফাইলটি পাঠান।", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
-            else:
-                await query.answer("❌ আপনি অ্যাডমিন নন!", show_alert=True)
-                
-        elif data == "back":
-            await query.edit_message_text("✨ *Select your service from below:*", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu())
-            
-        elif data in ["wa", "tg", "ig", "fb"]:
-            async with aiosqlite.connect(DB_FILE) as db:
-                async with db.execute('SELECT rowid, number FROM nums WHERE service = ? LIMIT 2', (data,)) as cursor:
-                    rows = await cursor.fetchall()
-                    if len(rows) < 2:
-                        await query.edit_message_text("❌ *দুঃখিত, পর্যাপ্ত নম্বর নেই!*", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 মেনু", callback_data="back")]]))
-                    else:
-                        ids, nums = [r[0] for r in rows], [r[1] for r in rows]
-                        await db.execute('DELETE FROM nums WHERE rowid IN (?, ?)', (ids[0], ids[1]))
-                        await db.commit()
-                        await query.edit_message_text(f"✅ *Numbers Assigned!*\n\n1️⃣ `{nums[0]}`\n2️⃣ `{nums[1]}`\n\n_কপি করতে নম্বরের উপর ক্লিক করুন।_", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 মেনু", callback_data="back")]]))
+# --- টেক্সট মেসেজ হ্যান্ডলার ---
+@bot.message_handler(func=lambda message: True)
+def handle_menu(message):
+    user_id = message.from_user.id
+    text = message.text
 
-        elif data == "ad_status":
-            async with aiosqlite.connect(DB_FILE) as db:
-                async with db.execute('SELECT service, COUNT(*) FROM nums GROUP BY service') as cursor:
-                    res = await cursor.fetchall()
-                async with db.execute('SELECT COUNT(*) FROM users') as cursor:
-                    total_users = (await cursor.fetchone())[0]
-                    
-            stats = "\n".join([f"🔹 {r[0].upper()}: {r[1]}টি" for r in res])
-            await query.edit_message_text(f"📊 *সিস্টেম স্ট্যাটাস:*\n\n👥 মোট ইউজার: {total_users} জন\n\n*স্টক নম্বর:*\n{stats or '❌ ডাটাবেস খালি'}", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
+    if text == '💬 WhatsApp':
+        bot.send_message(message.chat.id, "💬 **WhatsApp Menu**", parse_mode="Markdown", reply_markup=whatsapp_menu())
+    elif text in ['✈️ Telegram', '📷 Instagram', '📘 Facebook']:
+        bot.send_message(message.chat.id, f"🔄 {text} service is coming soon!")
+    elif text == '👤 My Account':
+        bot.send_message(message.chat.id, f"👤 **Your Account Info:**\nID: `{user_id}`\nStatus: Active", parse_mode="Markdown")
+    elif text == '❓ Help':
+        bot.send_message(message.chat.id, "❓ Contact support if you face any issues.")
+    elif text == '📱 Get Free Number':
+        bot.send_message(message.chat.id, "⏳ Generating your free number... Please wait.")
+    elif text == '📋 My Numbers':
+        bot.send_message(message.chat.id, "📦 You haven't taken any numbers yet.")
+    elif text == '🔙 Back':
+        bot.send_message(message.chat.id, "🏠 Returning to Main Menu...", reply_markup=main_menu())
+    elif user_id == ADMIN_ID:
+        if text == '➕ Add Number':
+            bot.send_message(message.chat.id, "📝 Send the number you want to add.")
+        elif text == '📥 Bulk Add Numbers':
+            bot.send_message(message.chat.id, "📂 Please upload the text file containing numbers.")
+        elif text == '📋 View All Numbers':
+            bot.send_message(message.chat.id, "📊 Displaying all numbers in database...")
+        elif text == '🗑 Delete Number':
+            bot.send_message(message.chat.id, "🗑 Enter the number you want to delete.")
+        elif text == '♻ Reset Used Numbers':
+            bot.send_message(message.chat.id, "✅ Used numbers list has been reset.")
+        elif text == '👥 Total Users':
+            bot.send_message(message.chat.id, "👥 Fetching total users count...")
+        elif text == '📊 Statistics':
+            bot.send_message(message.chat.id, "📈 System and sales statistics...")
+        elif text == '📢 Broadcast Message':
+            bot.send_message(message.chat.id, "📢 Send the message you want to broadcast to all users.")
+        elif text == '⚙ Settings':
+            bot.send_message(message.chat.id, "⚙ Bot Settings Panel.")
+    else:
+        bot.send_message(message.chat.id, "⚠️ Invalid option or unauthorized command.")
 
-        elif data == "ad_reset":
-            async with aiosqlite.connect(DB_FILE) as db:
-                await db.execute('DELETE FROM nums')
-                await db.commit()
-            await query.answer("🧹 সব নম্বর ডিলিট করা হয়েছে!", show_alert=True)
-            
-        elif data == "ad_broadcast":
-            await query.edit_message_text("📢 *ব্রডকাস্ট করার নিয়ম:*\n\nগ্রুপ চ্যাটে বা এখানে লিখুন: `/broadcast আপনার মেসেজ`", parse_mode=ParseMode.MARKDOWN, reply_markup=get_admin_menu())
+# Railway Hosting Webhook & Server Setup
+@server.route('/' + API_TOKEN, methods=['POST'])
+def getMessage():
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return "!", 200
 
-    except Exception as e:
-        logger.error(f"Callback error: {e}")
+@server.route("/")
+def webhook():
+    bot.remove_webhook()
+    # Railway automatically assigns a PORT env variable
+    bot.set_webhook(url='https://' + request.host + '/' + API_TOKEN)
+    return "Bot is running!", 200
 
-# --- 📢 ক্র্যাশ-প্রুফ ব্রডকাস্ট ইঞ্জিন ---
-async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    msg = update.message.text.replace("/broadcast ", "")
-    if not msg:
-        await update.message.reply_text("❌ মেসেজ খালি! লিখুন: `/broadcast হ্যালো`")
-        return
-
-    async with aiosqlite.connect(DB_FILE) as db:
-        async with db.execute('SELECT user_id FROM users') as cursor:
-            users = await cursor.fetchall()
-
-    await update.message.reply_text(f"📢 ব্রডকাস্ট শুরু হয়েছে... মোট ইউজার: {len(users)}")
-    count = 0
-    for user in users:
-        try:
-            await context.bot.send_message(chat_id=user[0], text=msg, parse_mode=ParseMode.MARKDOWN)
-            count += 1
-            await asyncio.sleep(0.05)  # অ্যান্টি-ব্যান ও ক্র্যাশ প্রোটেকশন বিরতি
-        except: continue
-    await update.message.reply_text(f"✅ সফলভাবে {count} জন ইউজারকে মেসেজ পাঠানো হয়েছে।")
-
-# --- 📥 হাই-স্পিড ফাইল আপলোডার ---
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    service = update.message.caption.lower() if update.message.caption else ""
-    if service not in ['wa', 'tg', 'ig', 'fb']:
-        await update.message.reply_text("❌ ভুল ক্যাপশন! ফাইল পাঠানোর সময় ক্যাপশনে wa, tg, ig, অথবা fb লিখুন।")
-        return
-
-    try:
-        file = await update.message.document.get_file()
-        content = await file.download_as_bytearray()
-        lines = content.decode('utf-8', errors='ignore').splitlines()
-        
-        async with aiosqlite.connect(DB_FILE) as db:
-            for line in lines:
-                if line.strip():
-                    await db.execute('INSERT INTO nums (service, number) VALUES (?, ?)', (service, line.strip()))
-            await db.commit()
-        await update.message.reply_text(f"✅ সফল! {len(lines)}টি {service.upper()} নম্বর ডাটাবেসে যুক্ত হয়েছে।")
-    except Exception as e:
-        logger.error(f"File upload error: {e}")
-        await update.message.reply_text("❌ ফাইল প্রসেস করতে সমস্যা হয়েছে!")
-
-# --- 🚀 স্টার্টআপ ইঞ্জিন ---
-if __name__ == '__main__':
-    asyncio.run(init_db())
-    app = ApplicationBuilder().token(TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("broadcast", broadcast_command))
-    app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-    
-    print("🚀 বোট সুপার-স্ট্যাবল মোডে লাইভ হয়েছে...")
-    app.run_polling()
+if __name__ == "__main__":
+    server.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
