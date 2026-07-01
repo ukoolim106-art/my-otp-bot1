@@ -9,31 +9,13 @@ ADMIN_ID = 8531139387
 
 bot = telebot.TeleBot(API_TOKEN)
 
-# --- ডাটাবেস সেটআপ ---
+# --- ডেটাবেস টেবিল তৈরি ---
 def init_db():
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS numbers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            phone_number TEXT UNIQUE,
-            status TEXT DEFAULT 'available'
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            join_date TEXT
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_numbers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            phone_number TEXT
-        )
-    ''')
+    cursor.execute('CREATE TABLE IF NOT EXISTS numbers (id INTEGER PRIMARY KEY AUTOINCREMENT, phone_number TEXT UNIQUE, status TEXT DEFAULT "available")')
+    cursor.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, join_date TEXT)')
+    cursor.execute('CREATE TABLE IF NOT EXISTS user_numbers (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, phone_number TEXT)')
     conn.commit()
     conn.close()
 
@@ -47,10 +29,10 @@ def register_user(user_id, username):
                        (user_id, username if username else "No_Username", time.strftime("%Y-%m-%d")))
         conn.commit()
         conn.close()
-    except Exception as e:
-        print(f"Error registering user: {e}")
+    except:
+        pass
 
-# --- কিবোর্ড মেনুসমূহ ---
+# --- বোতাম বা কিবোর্ড মেনু ---
 def main_menu():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add('💬 WhatsApp', '✈️ Telegram')
@@ -77,21 +59,16 @@ def admin_menu():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     register_user(message.from_user.id, message.from_user.username)
-    bot.send_message(
-        message.chat.id, 
-        "🤖 **Welcome to Number Panel Bot**\n\nPlease select an option from the menu:", 
-        parse_mode="Markdown", 
-        reply_markup=main_menu()
-    )
+    bot.send_message(message.chat.id, "🤖 **Welcome to Number Panel Bot**\n\nPlease select an option:", parse_mode="Markdown", reply_markup=main_menu())
 
 @bot.message_handler(commands=['admin'])
 def send_admin_panel(message):
     if message.from_user.id == ADMIN_ID:
         bot.send_message(message.chat.id, "🔐 **Welcome to Admin Panel**", parse_mode="Markdown", reply_markup=admin_menu())
     else:
-        bot.send_message(message.chat.id, "❌ You are not authorized to use this command.")
+        bot.send_message(message.chat.id, "❌ You are not authorized.")
 
-# --- টেক্সট মেসেজ হ্যান্ডলার ---
+# --- বোতামের কাজসমূহ ---
 @bot.message_handler(func=lambda message: True)
 def handle_menu(message):
     user_id = message.from_user.id
@@ -103,50 +80,50 @@ def handle_menu(message):
     elif text in ['✈️ Telegram', '📷 Instagram', '📘 Facebook']:
         bot.send_message(message.chat.id, f"🔄 {text} service is coming soon!")
     elif text == '👤 My Account':
-        bot.send_message(message.chat.id, f"👤 **Your Account Info:**\n\n🆔 User ID: `{user_id}`\n🌐 Status: `Active`", parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"👤 **Your Account Info:**\n🆔 ID: `{user_id}`\n🌐 Status: Active", parse_mode="Markdown")
     elif text == '❓ Help':
-        bot.send_message(message.chat.id, "❓ **Help Support**\n\nIf you face any issues, please contact the admin.", parse_mode="Markdown")
+        bot.send_message(message.chat.id, "❓ Contact support if you face any issues.")
     elif text == '🔙 Back':
-        bot.send_message(message.chat.id, "🏠 Returning to Main Menu...", reply_markup=main_menu())
+        bot.send_message(message.chat.id, "🏠 Main Menu", reply_markup=main_menu())
 
+    # ফ্রি নম্বর নেওয়া (ফিক্সড)
     elif text == '📱 Get Free Number':
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         cursor.execute("SELECT phone_number FROM numbers WHERE status='available' LIMIT 1")
         row = cursor.fetchone()
-        
         if row:
-            selected_number = row[0]  # ফিক্সড: Tuple থেকে স্ট্রিং নম্বর আলাদা করা হলো
+            selected_number = row[0] # [0] দিয়ে টিউপল ফিক্স করা হয়েছে
             cursor.execute("UPDATE numbers SET status='used' WHERE phone_number=?", (selected_number,))
             cursor.execute("INSERT INTO user_numbers (user_id, phone_number) VALUES (?, ?)", (user_id, selected_number))
             conn.commit()
-            bot.send_message(message.chat.id, f"✅ **Success!**\n\n🎁 Your Free Number: `{selected_number}`", parse_mode="Markdown")
+            bot.send_message(message.chat.id, f"✅ **Success!**\n🎁 Your Number: `{selected_number}`", parse_mode="Markdown")
         else:
-            bot.send_message(message.chat.id, "❌ Sorry! No free numbers available right now.")
+            bot.send_message(message.chat.id, "❌ No free numbers available.")
         conn.close()
 
+    # ইউজারের নিজস্ব নম্বর দেখা (ফিক্সড)
     elif text == '📋 My Numbers':
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         cursor.execute("SELECT phone_number FROM user_numbers WHERE user_id=?", (user_id,))
         rows = cursor.fetchall()
         conn.close()
-        
         if rows:
             response = "📋 **Your Taken Numbers:**\n\n"
             for r in rows:
-                response += f"📞 `{r[0]}`\n"  # ফিক্সড: Tuple ফিল্টারিং r[0]
+                response += f"📞 `{r[0]}`\n" # [0] দিয়ে টিউপল ফিক্স করা হয়েছে
         else:
             response = "📦 You haven't taken any numbers yet."
         bot.send_message(message.chat.id, response, parse_mode="Markdown")
 
-    # অ্যাডমিন প্যানেল ভ্যালিডেশন
+    # অ্যাডমিন একশন ভ্যালিডেশন
     elif user_id == ADMIN_ID:
         if text == '➕ Add Number':
             msg = bot.send_message(message.chat.id, "📝 Send the number you want to add:")
             bot.register_next_step_handler(msg, process_add_number)
         elif text == '📥 Bulk Add Numbers':
-            msg = bot.send_message(message.chat.id, "📂 Please upload the `.txt` file containing your numbers:")
+            msg = bot.send_message(message.chat.id, "📂 Upload .txt file containing numbers:")
             bot.register_next_step_handler(msg, process_bulk_numbers)
         elif text == '📋 View All Numbers':
             conn = sqlite3.connect('database.db')
@@ -155,14 +132,14 @@ def handle_menu(message):
             rows = cursor.fetchall()
             conn.close()
             if rows:
-                response = "📋 **All Numbers in Database:**\n\n"
+                response = "📋 **Database Numbers:**\n\n"
                 for r in rows:
-                    response += f"📞 `{r[0]}` - Status: `{r[1]}`\n"  # ফিক্সড: r[0] এবং r[1]
+                    response += f"📞 `{r[0]}` - `{r[1]}`\n" # [0] এবং [1] ফিক্সড
             else:
                 response = "❌ No numbers found."
             bot.send_message(message.chat.id, response, parse_mode="Markdown")
         elif text == '🗑 Delete Number':
-            msg = bot.send_message(message.chat.id, "🗑 Send the exact number to delete:")
+            msg = bot.send_message(message.chat.id, "🗑 Send the number to delete:")
             bot.register_next_step_handler(msg, process_delete_number)
         elif text == '♻ Reset Used Numbers':
             conn = sqlite3.connect('database.db')
@@ -171,36 +148,29 @@ def handle_menu(message):
             cursor.execute("DELETE FROM user_numbers")
             conn.commit()
             conn.close()
-            bot.send_message(message.chat.id, "♻️ All used numbers have been reset to available!")
+            bot.send_message(message.chat.id, "♻️ All used numbers reset successfully.")
         elif text == '👥 Total Users':
             conn = sqlite3.connect('database.db')
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM users")
-            res = cursor.fetchone()
-            total_users = res[0] if res else 0  # ফিক্সড: res[0]
+            total = cursor.fetchone()[0] # [0] ফিক্সড
             conn.close()
-            bot.send_message(message.chat.id, f"👥 **Total Registered Users:** `{total_users}`", parse_mode="Markdown")
+            bot.send_message(message.chat.id, f"👥 **Total Registered Users:** `{total}`", parse_mode="Markdown")
         elif text == '📊 Statistics':
             conn = sqlite3.connect('database.db')
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM numbers")
-            all_num = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM numbers WHERE status='available'")
-            avail_num = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM numbers WHERE status='used'")
-            used_num = cursor.fetchone()[0]
+            all_num = cursor.execute("SELECT COUNT(*) FROM numbers").fetchone()[0]
+            avail_num = cursor.execute("SELECT COUNT(*) FROM numbers WHERE status='available'").fetchone()[0]
+            used_num = cursor.execute("SELECT COUNT(*) FROM numbers WHERE status='used'").fetchone()[0]
             conn.close()
-            stats = f"📊 **Bot Statistics:**\n\n🔹 Total: `{all_num}`\n✅ Available: `{avail_num}`\n❌ Used: `{used_num}`"
-            bot.send_message(message.chat.id, stats, parse_mode="Markdown")
+            bot.send_message(message.chat.id, f"📊 **Statistics:**\nTotal: `{all_num}`\nAvailable: `{avail_num}`\nUsed: `{used_num}`", parse_mode="Markdown")
         elif text == '📢 Broadcast Message':
             msg = bot.send_message(message.chat.id, "📢 Send the message to broadcast:")
             bot.register_next_step_handler(msg, process_broadcast)
         elif text == '⚙ Settings':
-            bot.send_message(message.chat.id, "⚙ **Bot Settings:** System is active.", parse_mode="Markdown")
-    else:
-        bot.send_message(message.chat.id, "⚠️ Invalid option or unauthorized command.")
+            bot.send_message(message.chat.id, "⚙ Settings panel is active.")
 
-# --- নেক্সট স্টেপ হ্যান্ডলার ফিক্সড ফাংশনসমূহ ---
+# --- নেক্সট স্টেপ ব্যাকএন্ড লজিক ---
 def process_add_number(message):
     if not message.text or message.text in ['🔙 Back', '/start', '/admin']: return
     phone = message.text.strip()
@@ -210,25 +180,43 @@ def process_add_number(message):
         cursor.execute("INSERT INTO numbers (phone_number) VALUES (?)", (phone,))
         conn.commit()
         conn.close()
-        bot.send_message(message.chat.id, f"✅ Number `{phone}` added successfully!", parse_mode="Markdown")
-    except sqlite3.IntegrityError:
-        bot.send_message(message.chat.id, "❌ This number already exists.")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Error: {e}")
+        bot.send_message(message.chat.id, f"✅ Number `{phone}` added!", parse_mode="Markdown")
+    except:
+        bot.send_message(message.chat.id, "❌ Number already exists or error occurred.")
 
 def process_bulk_numbers(message):
     if message.content_type != 'document':
-        bot.send_message(message.chat.id, "❌ Invalid file type. Action canceled.")
+        bot.send_message(message.chat.id, "❌ Please send a text file.")
         return
     try:
         file_info = bot.get_file(message.document.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         content = downloaded_file.decode('utf-8')
         lines = content.splitlines()
-        
         added, duplicate = 0, 0
         conn = sqlite3.connect('database.db')
         cursor = conn.cursor()
         for line in lines:
             phone = line.strip()
             if phone:
+                try:
+                    cursor.execute("INSERT INTO numbers (phone_number) VALUES (?)", (phone,))
+                    added += 1
+                except:
+                    duplicate += 1
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, f"📊 **Import Result:**\nAdded: `{added}`\nDuplicates: `{duplicate}`", parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Error: {e}")
+
+def process_delete_number(message):
+    if not message.text or message.text in ['🔙 Back', '/start', '/admin']: return
+    phone = message.text.strip()
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM numbers WHERE phone_number=?", (phone,))
+    changes = conn.total_changes
+    conn.commit()
+    conn.close()
+    if changes > 0:
